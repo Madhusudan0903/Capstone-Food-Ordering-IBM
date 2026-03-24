@@ -1,0 +1,122 @@
+.cart-page h1 {
+  margin-bottom: 0.5rem;
+  color: var(--secondary);
+}
+
+.restaurant-name {
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.cart-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.cart-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.cart-item img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: var(--radius);
+}
+
+.cart-item-details {
+  flex: 1;
+}
+
+.cart-item-details h4 {
+  margin-bottom: 0.25rem;
+}
+
+.quantity-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.quantity-controls button {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--primary);
+  background: white;
+  border-radius: 6px;
+  font-size: 1.2rem;
+  color: var(--primary);
+}
+
+.quantity-controls button:hover {
+  background: var(--primary);
+  color: white;
+}
+
+.quantity-controls span {
+  min-width: 2rem;
+  text-align: center;
+}
+
+.cart-item-total {
+  text-align: right;
+}
+
+.cart-item-total span {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--primary);
+  display: block;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--error);
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.remove-btn:hover {
+  text-decoration: underline;
+}
+
+.cart-footer {
+  max-width: 400px;
+  margin-left: auto;
+  padding: 1.5rem;
+}
+
+.subtotal {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.note {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.cart-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.cart-empty {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.cart-empty h2 {
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+}

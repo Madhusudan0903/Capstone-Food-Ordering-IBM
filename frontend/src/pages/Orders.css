@@ -1,0 +1,11 @@
+.orders-page h1 { margin-bottom: 1.5rem; color: var(--secondary); }
+.no-orders { text-align: center; padding: 3rem; }
+.no-orders p { margin-bottom: 1rem; color: var(--text-muted); }
+.orders-list { display: flex; flex-direction: column; gap: 1rem; }
+.order-card { padding: 1.5rem; text-decoration: none; color: inherit; display: block; }
+.order-card:hover { transform: translateY(-2px); }
+.order-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.order-header h3 { color: var(--secondary); }
+.order-date { font-size: 0.9rem; color: var(--text-muted); }
+.order-total { font-weight: 700; color: var(--primary); margin-bottom: 0.25rem; }
+.order-id { font-size: 0.85rem; color: var(--text-muted); }

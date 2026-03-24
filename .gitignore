@@ -1,0 +1,9 @@
+# dependencies
+backend/node_modules/
+frontend/node_modules/
+
+# env files (sensitive data)
+backend/.env
+backend/.env.example
+backend/package-lock.json
+frontend/package-lock.json

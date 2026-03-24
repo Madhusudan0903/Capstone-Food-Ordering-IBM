@@ -1,0 +1,14 @@
+.order-detail h1 { margin-bottom: 1.5rem; color: var(--secondary); }
+.order-status-card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.order-status-card h3 { margin-bottom: 0.5rem; }
+.estimated-delivery { color: var(--accent); font-weight: 600; margin-bottom: 1rem; }
+.status-timeline { display: flex; flex-direction: column; gap: 1rem; }
+.status-step { display: flex; gap: 1rem; align-items: flex-start; }
+.status-dot { width: 12px; height: 12px; background: var(--primary); border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+.status-date { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem; }
+.order-info { padding: 1.5rem; margin-bottom: 1.5rem; }
+.delivery-address { margin: 0.5rem 0; color: var(--text-muted); }
+.order-items { margin: 1rem 0; }
+.order-totals { border-top: 1px solid #eee; padding-top: 1rem; }
+.order-totals .total { font-size: 1.25rem; font-weight: 700; margin-top: 0.5rem; }
+.review-section { padding: 1.5rem; margin-bottom: 1.5rem; }
