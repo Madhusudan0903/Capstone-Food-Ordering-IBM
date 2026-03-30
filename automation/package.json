@@ -1,0 +1,16 @@
+{
+  "name": "capstone-food-ordering-automation",
+  "version": "1.0.0",
+  "description": "Playwright automation for FoodEase",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "allure-commandline": "^2.38.1",
+    "allure-playwright": "^3.6.0"
+  }
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "email": "john@example.com",
+    "password": "password123",
+    "expected": "success"
+  },
+  {
+    "email": "wrong@example.com",
+    "password": "wrongpass",
+    "expected": "error"
+  },
+  {
+    "email": "",
+    "password": "password123",
+    "expected": "validation"
+  }
+]
