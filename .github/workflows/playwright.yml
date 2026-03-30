@@ -12,9 +12,6 @@ permissions:
   pages: write
   id-token: write
 
-# =========================
-# 🧪 TEST JOB (SHARDED)
-# =========================
 jobs:
   test:
     timeout-minutes: 60
@@ -23,16 +20,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard_index: [1, 2, 3] # 3 parallel machines
+        shard_index: [1, 2, 3]
 
     env:
       CI: true
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      # ✅ Node + Cache (BIG SPEED BOOST)
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: lts/*
           cache: npm
@@ -41,101 +39,129 @@ jobs:
             frontend/package-lock.json
             automation/package-lock.json
 
-      # -------------------------
       # BACKEND
-      # -------------------------
-      - working-directory: backend
+      - name: Install Backend Dependencies
+        working-directory: backend
         run: npm ci
 
-      - working-directory: backend
+      - name: Start Backend
+        working-directory: backend
         run: npm run dev &
 
-      # -------------------------
       # FRONTEND
-      # -------------------------
-      - working-directory: frontend
+      - name: Install Frontend Dependencies
+        working-directory: frontend
         run: npm ci
 
-      - working-directory: frontend
+      - name: Start Frontend
+        working-directory: frontend
         run: npm run dev &
 
-      # -------------------------
-      # WAIT (IMPORTANT)
-      # -------------------------
-      - run: npx wait-on http://localhost:5173
+      # WAIT FOR APP
+      - name: Wait for Frontend
+        run: npx wait-on http://localhost:5173
 
-      # -------------------------
-      # AUTOMATION
-      # -------------------------
-      - working-directory: automation
+      # AUTOMATION SETUP
+      - name: Install Automation Dependencies
+        working-directory: automation
         run: npm ci
 
-      # ✅ Install browsers ONCE per shard
-      - working-directory: automation
+      - name: Install Playwright Browsers
+        working-directory: automation
         run: npx playwright install --with-deps
 
-      # ✅ SHARD EXECUTION
-      - name: Run Playwright Tests (Shard)
+      - name: Run Playwright Tests
         working-directory: automation
-        run: |
-          npx playwright test \
-          --shard=${{ matrix.shard_index }}/3
+        run: npx playwright test --shard=${{ matrix.shard_index }}/3
         continue-on-error: true
 
-      # ✅ Upload results per shard
+      # ⬇️ Upload results for next job
       - name: Upload Allure Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: allure-results-${{ matrix.shard_index }}
+          name: allure-results-shard-${{ matrix.shard_index }}
           path: automation/allure-results
+          if-no-files-found: warn
           retention-days: 1
 
   # =========================
   # 📊 REPORT JOB
   # =========================
   report:
-    if: always()
-    needs: test
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    needs: [test] # depends on test job
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: lts/*
           cache: npm
-          cache-dependency-path: automation/package-lock.json
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            automation/package-lock.json
 
-      - working-directory: automation
+      # BACKEND
+      - name: Install Backend Dependencies
+        working-directory: backend
         run: npm ci
 
-      # ✅ Merge all shard results
+      - name: Start Backend
+        working-directory: backend
+        run: npm run dev &
+
+      # FRONTEND
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Start Frontend
+        working-directory: frontend
+        run: npm run dev &
+
+      # WAIT FOR APP
+      - name: Wait for Frontend
+        run: npx wait-on http://localhost:5173
+
+      # AUTOMATION SETUP
+      - name: Install Automation Dependencies
+        working-directory: automation
+        run: npm ci
+
+      # ⬇️ Download results from test job
       - name: Download Allure Results
         uses: actions/download-artifact@v4
         with:
-          path: automation/allure-results
-          pattern: allure-results-*
+          pattern: allure-results-shard-*
           merge-multiple: true
+          path: automation/allure-results
 
-      # ✅ Generate report
       - name: Generate Allure Report
         working-directory: automation
         run: npx allure generate allure-results -o allure-report
+        continue-on-error: true
 
-      # ✅ Upload report artifact
-      - name: Upload Allure Report
+      - name: Upload Allure HTML Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: automation/allure-report
+          if-no-files-found: warn
           retention-days: 14
 
-      # ✅ Deploy
       - name: Deploy to GitHub Pages
-        if: github.ref_name == 'main' || github.ref_name == 'master'
+        if: always() && github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
           publish_dir: automation/allure-report
+        continue-on-error: true
