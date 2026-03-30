@@ -25,6 +25,34 @@ jobs:
         with:
           node-version: lts/*
 
+      # -------------------------
+      # ✅ BACKEND SETUP
+      # -------------------------
+      - name: Install Backend Dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Start Backend
+        working-directory: backend
+        run: npm run dev &
+
+      # -------------------------
+      # ✅ FRONTEND SETUP
+      # -------------------------
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Start Frontend
+        working-directory: frontend
+        run: npm run dev &
+
+      # -------------------------
+      # ✅ WAIT FOR APP
+      # -------------------------
+      - name: Wait for Frontend
+        run: npx wait-on http://localhost:5173
+
       # ✅ FIX 1: Run inside automation folder
       - name: Install Dependencies
         working-directory: automation
