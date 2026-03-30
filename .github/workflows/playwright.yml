@@ -5,85 +5,137 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: write
   pages: write
   id-token: write
 
+# =========================
+# 🧪 TEST JOB (SHARDED)
+# =========================
 jobs:
-  test-and-report:
+  test:
     timeout-minutes: 60
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [1, 2, 3] # 3 parallel machines
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+    env:
+      CI: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ✅ Node + Cache (BIG SPEED BOOST)
+      - uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            automation/package-lock.json
 
       # -------------------------
-      # ✅ BACKEND SETUP
+      # BACKEND
       # -------------------------
-      - name: Install Backend Dependencies
-        working-directory: backend
+      - working-directory: backend
         run: npm ci
 
-      - name: Start Backend
-        working-directory: backend
+      - working-directory: backend
         run: npm run dev &
 
       # -------------------------
-      # ✅ FRONTEND SETUP
+      # FRONTEND
       # -------------------------
-      - name: Install Frontend Dependencies
-        working-directory: frontend
+      - working-directory: frontend
         run: npm ci
 
-      - name: Start Frontend
-        working-directory: frontend
+      - working-directory: frontend
         run: npm run dev &
 
       # -------------------------
-      # ✅ WAIT FOR APP
+      # WAIT (IMPORTANT)
       # -------------------------
-      - name: Wait for Frontend
-        run: npx wait-on http://localhost:5173
+      - run: npx wait-on http://localhost:5173
 
-      # ✅ FIX 1: Run inside automation folder
-      - name: Install Dependencies
-        working-directory: automation
+      # -------------------------
+      # AUTOMATION
+      # -------------------------
+      - working-directory: automation
         run: npm ci
 
-      # ✅ FIX 2: Install Playwright browsers
-      - name: Install Playwright Browsers
-        working-directory: automation
+      # ✅ Install browsers ONCE per shard
+      - working-directory: automation
         run: npx playwright install --with-deps
 
-      # ✅ FIX 3: Run tests from automation
-      - name: Run Playwright Tests
+      # ✅ SHARD EXECUTION
+      - name: Run Playwright Tests (Shard)
         working-directory: automation
-        run: npx playwright test
+        run: |
+          npx playwright test \
+          --shard=${{ matrix.shard_index }}/3
         continue-on-error: true
 
-      # ✅ FIX 4: Install Allure CLI (REQUIRED)
-      - name: Install Allure CLI
-        run: npm install -g allure-commandline
+      # ✅ Upload results per shard
+      - name: Upload Allure Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-${{ matrix.shard_index }}
+          path: automation/allure-results
+          retention-days: 1
 
-      # ✅ FIX 5: Generate report from correct folder
+  # =========================
+  # 📊 REPORT JOB
+  # =========================
+  report:
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: automation/package-lock.json
+
+      - working-directory: automation
+        run: npm ci
+
+      # ✅ Merge all shard results
+      - name: Download Allure Results
+        uses: actions/download-artifact@v4
+        with:
+          path: automation/allure-results
+          pattern: allure-results-*
+          merge-multiple: true
+
+      # ✅ Generate report
       - name: Generate Allure Report
-        if: always()
         working-directory: automation
-        run: allure generate allure-results --clean -o allure-report
+        run: npx allure generate allure-results -o allure-report
 
-      # ✅ FIX 6: Deploy correct folder
+      # ✅ Upload report artifact
+      - name: Upload Allure Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: automation/allure-report
+          retention-days: 14
+
+      # ✅ Deploy
       - name: Deploy to GitHub Pages
-        if: always()
+        if: github.ref_name == 'main' || github.ref_name == 'master'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
           publish_dir: automation/allure-report
