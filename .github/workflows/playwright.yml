@@ -34,6 +34,10 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            automation/package-lock.json
 
       # BACKEND
       - name: Install Backend Dependencies
