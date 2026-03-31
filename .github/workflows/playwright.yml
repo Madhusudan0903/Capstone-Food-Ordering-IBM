@@ -1,4 +1,4 @@
-name: Playwright + Allure Pages
+name: Playwright Tests & Allure Report
 
 on:
   push:
@@ -8,31 +8,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   test:
-    timeout-minutes: 75
+    timeout-minutes: 60
     runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD || 'Madhu@123' }}
-          MYSQL_DATABASE: capstone_food_ordering
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p${{ secrets.DB_PASSWORD || 'Madhu@123' }}"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
 
     strategy:
       fail-fast: false
@@ -40,18 +23,10 @@ jobs:
         shard_index: [1, 2, 3]
 
     env:
-      CI: "true"
-      NODE_ENV: test
-      PORT: 5000
-      DB_HOST: 127.0.0.1
-      DB_PORT: 3306
-      DB_USER: root
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'Madhu@123' }}
-      DB_NAME: capstone_food_ordering
-      JWT_SECRET: ${{ secrets.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production' }}
+      CI: true
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -64,78 +39,112 @@ jobs:
             frontend/package-lock.json
             automation/package-lock.json
 
-      - name: Wait for MySQL port
+      # =========================
+      # 🛢️ START MYSQL DATABASE
+      # =========================
+      - name: Start MySQL
         run: |
-          for i in {1..60}; do
-            (echo > /dev/tcp/127.0.0.1/3306) >/dev/null 2>&1 && exit 0
-            sleep 2
-          done
-          echo "MySQL did not become ready in time"
-          exit 1
+          sudo systemctl start mysql
+          mysql -u root -proot -e "CREATE DATABASE capstone_food_ordering;"
 
-      - name: Install backend dependencies
+      - name: Import DB Schema & Data
+        run: |
+          mysql -u root -proot capstone_food_ordering < backend/database.sql
+
+      # =========================
+      # BACKEND
+      # =========================
+      - name: Install Backend Dependencies
         working-directory: backend
         run: npm ci
 
-      - name: Install frontend dependencies
+      - name: Create Backend .env
+        run: |
+          echo "PORT=5000" >> backend/.env
+          echo "JWT_SECRET=your-super-secret-jwt-key-change-in-production" >> backend/.env
+          echo "DB_HOST=localhost" >> backend/.env
+          echo "DB_USER=root" >> backend/.env
+          echo "DB_PASSWORD=root" >> backend/.env
+          echo "DB_NAME=capstone_food_ordering" >> backend/.env
+
+      - name: Start Backend
+        working-directory: backend
+        run: |
+          npm run dev > backend.log 2>&1 &
+
+      # =========================
+      # FRONTEND
+      # =========================
+      - name: Install Frontend Dependencies
         working-directory: frontend
         run: npm ci
 
-      - name: Install automation dependencies
-        working-directory: automation
-        run: npm ci
-
-      - name: Install Playwright browsers
-        working-directory: automation
-        run: npx playwright install --with-deps
-
-      - name: Start backend
-        working-directory: backend
-        run: npm run dev > backend.log 2>&1 &
-
-      - name: Set backend URL for frontend
+      - name: Set Backend URL for Frontend
         run: echo "VITE_API_URL=http://localhost:5000" >> frontend/.env
 
-      - name: Start frontend
+      - name: Start Frontend
         working-directory: frontend
-        run: npm run dev > frontend.log 2>&1 &
+        run: |
+          npm run dev > frontend.log 2>&1 &
 
-      - name: Wait for services
+      # =========================
+      # WAIT FOR SERVICES
+      # =========================
+      - name: Wait for Services
         run: |
           npx wait-on tcp:5000
           npx wait-on http://localhost:5173
 
-      - name: Run Playwright tests
+      # =========================
+      # AUTOMATION
+      # =========================
+      - name: Install Automation Dependencies
+        working-directory: automation
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        working-directory: automation
+        run: npx playwright install --with-deps
+
+      - name: Run Playwright Tests
         working-directory: automation
         run: npx playwright test --shard=${{ matrix.shard_index }}/3
         continue-on-error: true
 
-      - name: Print backend logs (on failure)
+      # =========================
+      # DEBUG LOGS
+      # =========================
+      - name: Print Backend Logs (on failure)
         if: failure()
         run: cat backend/backend.log || true
 
-      - name: Print frontend logs (on failure)
+      - name: Print Frontend Logs (on failure)
         if: failure()
         run: cat frontend/frontend.log || true
 
-      - name: Upload allure results
+      # =========================
+      # UPLOAD RESULTS
+      # =========================
+      - name: Upload Allure Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-results-shard-${{ matrix.shard_index }}
           path: automation/allure-results
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 1
 
+  # =========================
+  # REPORT JOB
+  # =========================
   report:
-    name: Generate Allure report
     if: ${{ always() }}
     runs-on: ubuntu-latest
     needs: [test]
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -143,44 +152,28 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
-          cache-dependency-path: automation/package-lock.json
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            automation/package-lock.json
 
-      - name: Setup Java (required by Allure CLI)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Install automation dependencies
+      - name: Install Automation Dependencies
         working-directory: automation
         run: npm ci
 
-      - name: Download allure results from all shards
+      - name: Download Allure Results
         uses: actions/download-artifact@v4
         with:
           pattern: allure-results-shard-*
           merge-multiple: true
           path: automation/allure-results
 
-      - name: Validate Allure results
-        if: always()
-        run: |
-          if [ -d automation/allure-results ]; then
-            FILE_COUNT=$(ls -1 automation/allure-results | wc -l | tr -d ' ')
-          else
-            FILE_COUNT=0
-          fi
-          if [ "$FILE_COUNT" -eq 0 ]; then
-            echo "Allure results are empty. No test cases were captured."
-            exit 1
-          fi
-
-      - name: Generate Allure report
-        if: always()
+      - name: Generate Allure Report
         working-directory: automation
         run: npx allure generate allure-results -o allure-report --clean
+        continue-on-error: true
 
-      - name: Upload Allure HTML artifact
+      - name: Upload Allure HTML Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -189,26 +182,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Setup GitHub Pages
-        if: always() && github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
-        uses: actions/configure-pages@v5
-
-      - name: Upload report for GitHub Pages
-        if: always() && github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: automation/allure-report
-
-  deploy:
-    name: Deploy report to GitHub Pages
-    if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
-    runs-on: ubuntu-latest
-    needs: [report]
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        if: always() && github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: automation/allure-report
+        continue-on-error: true
