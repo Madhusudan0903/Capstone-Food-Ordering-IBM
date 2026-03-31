@@ -1,0 +1,118 @@
+name: Allure Report (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: capstone_food_ordering
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -prootpass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      DB_HOST: 127.0.0.1
+      DB_USER: root
+      DB_PASSWORD: rootpass
+      DB_NAME: capstone_food_ordering
+      PORT: 5000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install mysql client
+        run: sudo apt-get update && sudo apt-get install -y mysql-client
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install automation deps
+        working-directory: automation
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: automation
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Init database (schema + seed)
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -u "${DB_USER}" -p"${DB_PASSWORD}" -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          mysql -h 127.0.0.1 -P 3306 -u "${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" < database/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -u "${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" < database/seed.sql
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          nohup npm run start > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+
+      - name: Start frontend (Vite)
+        working-directory: frontend
+        run: |
+          nohup npm run dev -- --host 0.0.0.0 --port 5173 > /tmp/frontend.log 2>&1 &
+          echo $! > /tmp/frontend.pid
+
+      - name: Wait for UI
+        run: |
+          for i in $(seq 1 60); do
+            if curl -s "http://localhost:5173/login" >/dev/null; then
+              echo "Frontend is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Frontend did not become ready in time"
+          exit 1
+
+      - name: Run Playwright tests
+        working-directory: automation
+        continue-on-error: true
+        run: npm test
+
+      - name: Generate Allure report
+        if: always()
+        working-directory: automation
+        run: |
+          if [ -d "allure-results" ] && [ "$(ls -A allure-results 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
+            npx allure generate ./allure-results --clean -o ./allure-report
+          else
+            echo "No allure-results found; skipping Allure generation."
+            mkdir -p ./allure-report
+          fi
+
+      - name: Deploy to GitHub Pages (gh-pages)
+        if: always()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./automation/allure-report
+          publish_branch: gh-pages
+          enable_jekyll: false
+          force_orphan: true
+          commit_message: "Update Allure report"
