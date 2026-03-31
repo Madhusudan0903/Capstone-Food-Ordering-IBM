@@ -1,0 +1,47 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - link "🍔 FoodEase" [ref=e6]:
+        - /url: /
+        - generic [ref=e7]: 🍔
+        - text: FoodEase
+      - navigation [ref=e8]:
+        - link "Restaurants" [ref=e9]:
+          - /url: /restaurants
+        - link "Cart" [ref=e10]:
+          - /url: /cart
+        - link "Orders" [ref=e11]:
+          - /url: /orders
+        - link "Profile" [ref=e12]:
+          - /url: /profile
+        - generic [ref=e13]: John
+        - button "Logout" [ref=e14] [cursor=pointer]
+  - main [ref=e15]:
+    - generic [ref=e16]:
+      - heading "Cart" [level=1] [ref=e17]
+      - paragraph [ref=e18]: Pizza Palace
+      - generic [ref=e20]:
+        - img "Margherita" [ref=e21]
+        - generic [ref=e22]:
+          - heading "Margherita" [level=4] [ref=e23]
+          - paragraph [ref=e24]: $12.99 each
+          - generic [ref=e25]:
+            - button "-" [ref=e26] [cursor=pointer]
+            - generic [ref=e27]: "1"
+            - button "+" [ref=e28] [cursor=pointer]
+        - generic [ref=e29]:
+          - generic [ref=e30]: $12.99
+          - button "Remove" [ref=e31] [cursor=pointer]
+      - generic [ref=e32]:
+        - paragraph [ref=e33]: "Subtotal: $12.99"
+        - paragraph [ref=e34]: Delivery fee and tax calculated at checkout
+        - generic [ref=e35]:
+          - button "Clear Cart" [ref=e36] [cursor=pointer]
+          - link "Proceed to Checkout" [ref=e37]:
+            - /url: /checkout
+  - contentinfo [ref=e38]:
+    - paragraph [ref=e40]: © 2025 FoodEase - Capstone Food Ordering Platform
+```
