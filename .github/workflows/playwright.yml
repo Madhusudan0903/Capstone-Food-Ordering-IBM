@@ -8,9 +8,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
+
+concurrency:
+  group: "playwright-allure-${{ github.ref }}"
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -26,7 +30,7 @@ jobs:
       CI: true
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -39,91 +43,89 @@ jobs:
             frontend/package-lock.json
             automation/package-lock.json
 
-      # =========================
-      # BACKEND
-      # =========================
-      - name: Install Backend Dependencies
+      - name: Install backend dependencies
         working-directory: backend
         run: npm ci
 
-      - name: Start Backend
-        working-directory: backend
-        run: |
-          npm run dev > backend.log 2>&1 &
-
-      # =========================
-      # FRONTEND
-      # =========================
-      - name: Install Frontend Dependencies
+      - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
 
-      - name: Set Backend URL for Frontend
-        run: echo "VITE_API_URL=http://localhost:5000" >> frontend/.env
-
-      - name: Start Frontend
-        working-directory: frontend
-        run: |
-          npm run dev > frontend.log 2>&1 &
-
-      # =========================
-      # WAIT FOR SERVICES
-      # =========================
-      - name: Wait for Services
-        run: |
-          npx wait-on tcp:5000
-          npx wait-on http://localhost:5173
-
-      # =========================
-      # AUTOMATION
-      # =========================
-      - name: Install Automation Dependencies
+      - name: Install automation dependencies
         working-directory: automation
         run: npm ci
 
-      - name: Install Playwright Browsers
+      - name: Start backend
+        working-directory: backend
+        run: npm run dev > backend.log 2>&1 &
+
+      - name: Set backend URL for frontend
+        run: echo "VITE_API_URL=http://localhost:5000" >> frontend/.env
+
+      - name: Start frontend
+        working-directory: frontend
+        run: npm run dev > frontend.log 2>&1 &
+
+      - name: Wait for backend and frontend
+        run: |
+          for i in {1..60}; do
+            if curl -sSf http://localhost:5000 >/dev/null 2>&1; then
+              echo "Backend is up"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "Backend did not start in time"
+              exit 1
+            fi
+            sleep 2
+          done
+          for i in {1..60}; do
+            if curl -sSf http://localhost:5173 >/dev/null 2>&1; then
+              echo "Frontend is up"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "Frontend did not start in time"
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Install Playwright browsers
         working-directory: automation
         run: npx playwright install --with-deps
 
-      - name: Run Playwright Tests
+      - name: Run Playwright tests (sharded)
         working-directory: automation
         run: npx playwright test --shard=${{ matrix.shard_index }}/3
         continue-on-error: true
 
-      # =========================
-      # DEBUG LOGS (VERY IMPORTANT)
-      # =========================
-      - name: Print Backend Logs (on failure)
+      - name: Print backend logs (on failure)
         if: failure()
         run: cat backend/backend.log || true
 
-      - name: Print Frontend Logs (on failure)
+      - name: Print frontend logs (on failure)
         if: failure()
         run: cat frontend/frontend.log || true
 
-      # =========================
-      # UPLOAD RESULTS
-      # =========================
-      - name: Upload Allure Results
+      - name: Upload allure results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-results-shard-${{ matrix.shard_index }}
           path: automation/allure-results
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 3
 
-  # =========================
-  # REPORT JOB
-  # =========================
   report:
+    name: Generate Allure report
     if: ${{ always() }}
     runs-on: ubuntu-latest
     needs: [test]
     timeout-minutes: 30
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -131,60 +133,30 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
-            automation/package-lock.json
+          cache-dependency-path: automation/package-lock.json
 
-      # BACKEND
-      - name: Install Backend Dependencies
-        working-directory: backend
-        run: npm ci
+      - name: Setup Java (required by Allure CLI)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      - name: Start Backend
-        working-directory: backend
-        run: |
-          npm run dev > backend.log 2>&1 &
-
-      # FRONTEND
-      - name: Install Frontend Dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Set Backend URL for Frontend
-        run: echo "VITE_API_URL=http://localhost:5000" >> frontend/.env
-
-      - name: Start Frontend
-        working-directory: frontend
-        run: |
-          npm run dev > frontend.log 2>&1 &
-
-      # WAIT
-      - name: Wait for Services
-        run: |
-          npx wait-on tcp:5000
-          npx wait-on http://localhost:5173
-
-      # AUTOMATION
-      - name: Install Automation Dependencies
+      - name: Install automation dependencies
         working-directory: automation
         run: npm ci
 
-      # DOWNLOAD RESULTS
-      - name: Download Allure Results
+      - name: Download allure results from all shards
         uses: actions/download-artifact@v4
         with:
           pattern: allure-results-shard-*
           merge-multiple: true
           path: automation/allure-results
 
-      # GENERATE REPORT
-      - name: Generate Allure Report
+      - name: Generate Allure report
         working-directory: automation
         run: npx allure generate allure-results -o allure-report --clean
-        continue-on-error: true
 
-      - name: Upload Allure HTML Report
+      - name: Upload Allure HTML artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -193,11 +165,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Deploy to GitHub Pages
-        if: always() && github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Upload report for GitHub Pages
+        if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: automation/allure-report
-        continue-on-error: true
+          path: automation/allure-report
+
+  deploy:
+    name: Deploy report to GitHub Pages
+    if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
+    runs-on: ubuntu-latest
+    needs: [report]
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
