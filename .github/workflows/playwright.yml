@@ -1,4 +1,4 @@
-name: Playwright Tests & Allure Report
+name: Playwright + Allure Pages
 
 on:
   push:
@@ -13,13 +13,26 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "playwright-allure-${{ github.ref }}"
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   test:
-    timeout-minutes: 60
+    timeout-minutes: 75
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD || 'Madhu@123' }}
+          MYSQL_DATABASE: capstone_food_ordering
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p${{ secrets.DB_PASSWORD || 'Madhu@123' }}"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
 
     strategy:
       fail-fast: false
@@ -27,7 +40,15 @@ jobs:
         shard_index: [1, 2, 3]
 
     env:
-      CI: true
+      CI: "true"
+      NODE_ENV: test
+      PORT: 5000
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'Madhu@123' }}
+      DB_NAME: capstone_food_ordering
+      JWT_SECRET: ${{ secrets.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production' }}
 
     steps:
       - name: Checkout repository
@@ -43,6 +64,15 @@ jobs:
             frontend/package-lock.json
             automation/package-lock.json
 
+      - name: Wait for MySQL port
+        run: |
+          for i in {1..60}; do
+            (echo > /dev/tcp/127.0.0.1/3306) >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "MySQL did not become ready in time"
+          exit 1
+
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
@@ -55,6 +85,10 @@ jobs:
         working-directory: automation
         run: npm ci
 
+      - name: Install Playwright browsers
+        working-directory: automation
+        run: npx playwright install --with-deps
+
       - name: Start backend
         working-directory: backend
         run: npm run dev > backend.log 2>&1 &
@@ -66,36 +100,12 @@ jobs:
         working-directory: frontend
         run: npm run dev > frontend.log 2>&1 &
 
-      - name: Wait for backend and frontend
+      - name: Wait for services
         run: |
-          for i in {1..60}; do
-            if curl -sSf http://localhost:5000 >/dev/null 2>&1; then
-              echo "Backend is up"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "Backend did not start in time"
-              exit 1
-            fi
-            sleep 2
-          done
-          for i in {1..60}; do
-            if curl -sSf http://localhost:5173 >/dev/null 2>&1; then
-              echo "Frontend is up"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "Frontend did not start in time"
-              exit 1
-            fi
-            sleep 2
-          done
+          npx wait-on tcp:5000
+          npx wait-on http://localhost:5173
 
-      - name: Install Playwright browsers
-        working-directory: automation
-        run: npx playwright install --with-deps
-
-      - name: Run Playwright tests (sharded)
+      - name: Run Playwright tests
         working-directory: automation
         run: npx playwright test --shard=${{ matrix.shard_index }}/3
         continue-on-error: true
@@ -152,7 +162,21 @@ jobs:
           merge-multiple: true
           path: automation/allure-results
 
+      - name: Validate Allure results
+        if: always()
+        run: |
+          if [ -d automation/allure-results ]; then
+            FILE_COUNT=$(ls -1 automation/allure-results | wc -l | tr -d ' ')
+          else
+            FILE_COUNT=0
+          fi
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "Allure results are empty. No test cases were captured."
+            exit 1
+          fi
+
       - name: Generate Allure report
+        if: always()
         working-directory: automation
         run: npx allure generate allure-results -o allure-report --clean
 
@@ -165,8 +189,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Setup GitHub Pages
+        if: always() && github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
+        uses: actions/configure-pages@v5
+
       - name: Upload report for GitHub Pages
-        if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
+        if: always() && github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')
         uses: actions/upload-pages-artifact@v3
         with:
           path: automation/allure-report
