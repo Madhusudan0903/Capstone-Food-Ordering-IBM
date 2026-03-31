@@ -17,6 +17,20 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
 
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: capstone_food_ordering
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +38,10 @@ jobs:
 
     env:
       CI: true
+      DB_HOST: 127.0.0.1
+      DB_USER: root
+      DB_PASSWORD: Madhu@123
+      DB_NAME: capstone_food_ordering
 
     steps:
       - name: Checkout Repository
@@ -40,16 +58,23 @@ jobs:
             automation/package-lock.json
 
       # =========================
-      # 🛢️ START MYSQL DATABASE
+      # WAIT FOR MYSQL
       # =========================
-      - name: Start MySQL
+      - name: Wait for MySQL
         run: |
-          sudo systemctl start mysql
-          mysql -u root -proot -e "CREATE DATABASE capstone_food_ordering;"
+          until mysqladmin ping -h "127.0.0.1" -proot --silent; do
+            echo "Waiting for MySQL..."
+            sleep 2
+          done
 
-      - name: Import DB Schema & Data
-        run: |
-          mysql -u root -proot capstone_food_ordering < backend/database.sql
+      # =========================
+      # SETUP DATABASE
+      # =========================
+      - name: Run DB Schema
+        run: mysql -h 127.0.0.1 -u root -proot capstone_food_ordering < database/schema.sql
+
+      - name: Seed DB Data
+        run: mysql -h 127.0.0.1 -u root -proot capstone_food_ordering < database/seed.sql
 
       # =========================
       # BACKEND
@@ -57,15 +82,6 @@ jobs:
       - name: Install Backend Dependencies
         working-directory: backend
         run: npm ci
-
-      - name: Create Backend .env
-        run: |
-          echo "PORT=5000" >> backend/.env
-          echo "JWT_SECRET=your-super-secret-jwt-key-change-in-production" >> backend/.env
-          echo "DB_HOST=localhost" >> backend/.env
-          echo "DB_USER=root" >> backend/.env
-          echo "DB_PASSWORD=root" >> backend/.env
-          echo "DB_NAME=capstone_food_ordering" >> backend/.env
 
       - name: Start Backend
         working-directory: backend
@@ -157,10 +173,17 @@ jobs:
             frontend/package-lock.json
             automation/package-lock.json
 
+      # FRONTEND (for report preview if needed)
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # AUTOMATION
       - name: Install Automation Dependencies
         working-directory: automation
         run: npm ci
 
+      # DOWNLOAD RESULTS
       - name: Download Allure Results
         uses: actions/download-artifact@v4
         with:
@@ -168,6 +191,7 @@ jobs:
           merge-multiple: true
           path: automation/allure-results
 
+      # GENERATE REPORT
       - name: Generate Allure Report
         working-directory: automation
         run: npx allure generate allure-results -o allure-report --clean
